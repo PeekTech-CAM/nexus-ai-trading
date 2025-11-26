@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { ChartComponent } from '../components/Chart';
 import { MarketList } from '../components/MarketList'; 
 
+const API_BASE_URL = "https://nexus-ai-trading-1.onrender.com";
+
 export default function Dashboard() {
   const router = useRouter();
   
@@ -19,10 +21,11 @@ export default function Dashboard() {
   const [candleData, setCandleData] = useState<any[]>([]);
 
   useEffect(() => {
+    
     // 1. Datos principales (Precio, RSI, IA)
     const fetchMarketData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/api/market/btc');
+        const res = await fetch(`${API_BASE_URL}/api/market/btc`);
         const data = await res.json();
         
         if (data.status === "LIVE" || data.price > 0) {
@@ -39,10 +42,10 @@ export default function Dashboard() {
       } catch (error) { console.error("Error API", error); }
     };
 
-    // 2. Gráfico
+    // 2. Gráfico Histórico
     const fetchCandles = async () => {
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/market/candles');
+            const res = await fetch(`${API_BASE_URL}/api/market/candles`);
             const data = await res.json();
             if (Array.isArray(data) && data.length > 0) setCandleData(data);
         } catch (error) { console.error("Error Velas", error); }
@@ -63,7 +66,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-black text-white flex font-sans overflow-hidden">
       
-      {/* --- SIDEBAR (MENÚ LATERAL ARREGLADO) --- */}
+      {/* SIDEBAR (NAVEGACIÓN ARREGLADA) */}
       <aside className="w-64 border-r border-slate-800 bg-slate-950 flex flex-col p-4 hidden md:flex z-20">
         <div className="flex items-center gap-2 mb-10 px-2">
           <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.5)]">
@@ -73,27 +76,13 @@ export default function Dashboard() {
         </div>
 
         <nav className="space-y-2 flex-1">
-          {/* Botón Dashboard (Activo) */}
-          <button 
-            onClick={() => router.push('/dashboard')} 
-            className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600/10 text-blue-400 border border-blue-600/20 rounded-lg transition hover:bg-blue-600/20"
-          >
+          <button onClick={() => router.push('/dashboard')} className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600/10 text-blue-400 border border-blue-600/20 rounded-lg transition hover:bg-blue-600/20">
             <Activity className="w-5 h-5" /> Dashboard
           </button>
-
-          {/* Botón Estrategias (Funcional) */}
-          <button 
-            onClick={() => router.push('/estrategias')} 
-            className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-900 hover:text-white rounded-lg transition"
-          >
+          <button onClick={() => router.push('/estrategias')} className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-900 hover:text-white rounded-lg transition">
             <LineChart className="w-5 h-5" /> Estrategias
           </button>
-
-          {/* Botón Cartera (Funcional) */}
-          <button 
-            onClick={() => router.push('/cartera')} 
-            className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-900 hover:text-white rounded-lg transition"
-          >
+          <button onClick={() => router.push('/cartera')} className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-900 hover:text-white rounded-lg transition">
             <Wallet className="w-5 h-5" /> Cartera
           </button>
         </nav>

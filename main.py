@@ -195,7 +195,33 @@ def generate_strategy(request: StrategyRequest):
     # ... (La lógica del generador de estrategias es compleja, se deja la función para ser completada)
     # De momento, la dejamos como un Fallback simple para que el código compile
     return {"name": "Estrategia Fallback", "risk_level": "Medio", "indicators": ["RSI"], "entry_rules": "Simulación", "exit_rules": "Simulación", "stop_loss": "2%", "take_profit": "5%", "reasoning": "Simulación"}
-
+# --- EN main.py ---
+# Define un nuevo modelo para recibir las claves
+class KeyPayload(BaseModel):
+    email: str
+    apiKey: str
+    secretKey: str
+    
+# 🔥 RUTA: GUARDAR CLAVES DE BINANCE ENCRIPTADAS 🔥
+@app.post("/api/user/save-keys")
+def save_exchange_keys(payload: KeyPayload):
+    """Recibe las claves del usuario y las guarda encriptadas."""
+    
+    # En un entorno real, verificarías la autenticación del usuario aquí
+    if not payload.email or not payload.apiKey or not payload.secretKey:
+        raise HTTPException(status_code=400, detail="Faltan datos de autenticación.")
+    
+    exito = db_manager.guardar_keys_binance(
+        payload.email,
+        payload.apiKey,
+        payload.secretKey
+    )
+    
+    if exito:
+        return {"status": "success", "message": "Claves guardadas y encriptadas correctamente."}
+    else:
+        raise HTTPException(status_code=500, detail="Error al guardar las claves en el servidor.")
+        
 if __name__ == "__main__":
     print("🚀 NEXUS SYSTEM ONLINE (Full Power)...")
     uvicorn.run("main:app", host="0.0.0.0", port=os.getenv("PORT", 8000))
