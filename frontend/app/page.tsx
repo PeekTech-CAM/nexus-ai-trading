@@ -3,8 +3,11 @@ import { useState } from 'react';
 import { User, Lock, Zap, AlertCircle, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation'; 
 
+// La URL de tu API pública (Render)
+const API_BASE_URL = "https://nexus-ai-trading-1.onrender.com";
+
 export default function Home() {
-  const router = useRouter(); // Hook para navegar
+  const router = useRouter(); 
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,7 +18,8 @@ export default function Home() {
     setStatus({ loading: true, error: '', success: '' });
 
     const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-    const url = `http://127.0.0.1:8000${endpoint}`;
+    // 🔥 Llama a la URL de Render, no a localhost
+    const url = `${API_BASE_URL}${endpoint}`; 
 
     try {
       const res = await fetch(url, {
@@ -26,13 +30,13 @@ export default function Home() {
 
       const data = await res.json();
 
-      if (!res.ok) throw new Error(data.detail || 'Error de conexión');
+      if (!res.ok) throw new Error(data.detail || 'Error de conexión con el servidor');
 
       // ÉXITO
       setStatus({ loading: false, error: '', success: isLogin ? 'ACCESO CONCEDIDO' : 'CUENTA CREADA' });
       
       if(isLogin) {
-        // --- AQUÍ ESTÁ LA MAGIA: REDIRECCIÓN ---
+        // Redirigir al Dashboard
         setTimeout(() => {
             router.push('/dashboard');
         }, 1000); 
