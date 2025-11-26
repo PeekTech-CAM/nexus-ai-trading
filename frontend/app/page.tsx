@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { User, Lock, Zap, AlertCircle, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation'; 
 
-// La URL de tu API pública (Render)
+// URL de Render (DEBES CONFIGURAR ESTA VARIABLE EN VERCEL)
 const API_BASE_URL = "https://nexus-ai-trading-1.onrender.com";
 
 export default function Home() {
@@ -18,10 +18,10 @@ export default function Home() {
     setStatus({ loading: true, error: '', success: '' });
 
     const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-    // 🔥 Llama a la URL de Render, no a localhost
     const url = `${API_BASE_URL}${endpoint}`; 
 
     try {
+      // ... (Resto de la lógica fetch igual) ...
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -32,11 +32,9 @@ export default function Home() {
 
       if (!res.ok) throw new Error(data.detail || 'Error de conexión con el servidor');
 
-      // ÉXITO
       setStatus({ loading: false, error: '', success: isLogin ? 'ACCESO CONCEDIDO' : 'CUENTA CREADA' });
       
       if(isLogin) {
-        // Redirigir al Dashboard
         setTimeout(() => {
             router.push('/dashboard');
         }, 1000); 
@@ -46,7 +44,8 @@ export default function Home() {
       setStatus({ loading: false, error: err.message, success: '' });
     }
   };
-
+  
+  // ... (El resto del renderizado es el mismo)
   return (
     <main className="min-h-screen bg-black flex items-center justify-center p-4 relative overflow-hidden">
       {/* Fondo Matrix */}
