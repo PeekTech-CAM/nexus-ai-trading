@@ -1,248 +1,404 @@
 "use client";
-import { useState } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-    Activity, LineChart, Wallet, LogOut, Cpu, 
-    ArrowUpRight, CreditCard, Key, Save, AlertTriangle, CheckCircle, History, PieChart, ArrowDownRight
+import {
+  Activity,
+  LineChart,
+  Wallet,
+  LogOut,
+  Cpu,
+  ArrowUpRight,
+  CreditCard,
+  Key,
+  Save,
+  AlertTriangle,
+  CheckCircle,
+  History,
+  PieChart,
+  ArrowDownRight,
+  RefreshCw,
+  Download,
+  PlusCircle
 } from 'lucide-react';
 
-// URL de Render (Para llamar al Backend)
-const API_BASE_URL = "https://nexus-ai-trading-1.onrender.com";
+// Cambia la URL según tu backend desplegado
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://nexus-ai-trading-1.onrender.com';
+
+type Asset = {
+  coin: string;
+  amount: number;
+  value: number;
+  colorClass: string;
+};
+
+type Trade = {
+  type: 'COMPRA' | 'VENTA';
+  asset: string;
+  amount: number;
+  price: number;
+  date: string;
+  profit?: string | null;
+};
 
 export default function PortfolioPage() {
   const router = useRouter();
 
-  // ESTADO NUEVO: Controla la visibilidad del formulario de claves
-  const [showKeyForm, setShowKeyForm] = useState(false); 
-  
-  // Estados del formulario
+  // UI state
+  const [showKeyForm, setShowKeyForm] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [secretKey, setSecretKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState({ error: '', success: '' });
-  
-  // Datos simulados (deberías obtener el email real del usuario logueado)
-  const USER_EMAIL = "ceo@nexus.com"; 
-  
-  // --- LÓGICA DE GUARDADO ---
-  const handleSaveKeys = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setSaveStatus({ error: '', success: '' });
+  const [saveStatus, setSaveStatus] = useState<{ error?: string; success?: string }>({});
 
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [history, setHistory] = useState<Trade[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDepositing, setIsDepositing] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('');
+  const [notif, setNotif] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
+
+  const USER_EMAIL = 'ceo@nexus.com'; // En producción, reemplazar por la sesión real
+
+  // ----- Fetch portfolio data -----
+  const fetchPortfolio = async () => {
+    setIsLoading(true);
+    try {
+      // Ejemplo: Llamada real a backend para obtener cartera y historial
+      const [assetsRes, historyRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/portfolio`),
+        fetch(`${API_BASE_URL}/api/trades/recent`),
+      ]);
+
+      if (assetsRes.ok) {
+        const assetsJson = await assetsRes.json();
+        // Esperamos formato: [{ coin, amount, value }]
+        setAssets(
+          (assetsJson && assetsJson.length ? assetsJson : sampleAssets()).map((a: any, i: number) => ({
+            coin: a.coin || a.symbol || `C${i}`,
+            amount: a.amount ?? 0,
+            value: a.value ?? a.price ?? 0,
+            colorClass: colorForIndex(i),
+          }))
+        );
+      } else {
+        // fallback a muestra local
+        setAssets(sampleAssets());
+      }
+
+      if (historyRes.ok) {
+        const historyJson = await historyRes.json();
+        setHistory(historyJson.length ? historyJson : sampleHistory());
+      } else {
+        setHistory(sampleHistory());
+      }
+    } catch (err) {
+      console.error('Fetch portfolio error:', err);
+      setNotif({ type: 'error', message: 'No se pudo cargar la cartera. Mostrando datos locales.' });
+      setAssets(sampleAssets());
+      setHistory(sampleHistory());
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    fetchPortfolio();
+  }, []);
+
+  // ----- Save API keys (encrypted in backend) -----
+  const handleSaveKeys = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSaving(true);
+    setSaveStatus({});
     try {
       const res = await fetch(`${API_BASE_URL}/api/user/save-keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            email: USER_EMAIL, 
-            apiKey, 
-            secretKey 
-        }),
+        body: JSON.stringify({ email: USER_EMAIL, apiKey, secretKey }),
       });
 
       const data = await res.json();
-      
-      if (!res.ok) throw new Error(data.detail || 'Error al guardar la clave.');
+      if (!res.ok) throw new Error(data.detail || data.message || 'Error al guardar');
 
-      setSaveStatus({ success: "Claves encriptadas y guardadas. ¡Bot listo!", error: '' });
-      setShowKeyForm(false); // Ocultar formulario al guardar
+      setSaveStatus({ success: 'Claves guardadas correctamente.' });
+      setNotif({ type: 'success', message: 'Claves guardadas y bot activado.' });
+      setShowKeyForm(false);
     } catch (err: any) {
-      setSaveStatus({ success: '', error: 'Fallo al guardar: ' + err.message });
+      console.error(err);
+      setSaveStatus({ error: err.message || 'Error desconocido' });
+      setNotif({ type: 'error', message: 'Fallo al guardar claves.' });
     }
     setIsSaving(false);
   };
 
-  // Datos simulados de tu cartera (igual que antes)
-  const assets = [
-    { coin: 'USDT', amount: 24500.00, value: 24500.00, color: 'bg-green-500' },
-    { coin: 'BTC', amount: 0.45, value: 39150.00, color: 'bg-orange-500' },
-    { coin: 'ETH', amount: 4.2, value: 12300.50, color: 'bg-blue-500' },
-    { coin: 'SOL', amount: 150, value: 20400.00, color: 'bg-purple-500' },
-  ];
+  // ----- Deposit modal -----
+  const handleDeposit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsDepositing(true);
+    try {
+      // Llamada a backend para procesar depósito (simulado aquí)
+      const amt = parseFloat(depositAmount);
+      if (!amt || amt <= 0) throw new Error('Introduce una cantidad válida');
 
-  const history = [
-    { type: 'COMPRA', asset: 'BTC/USDT', amount: 0.1, price: 86500, date: 'Hace 2h', profit: null },
-    { type: 'VENTA', asset: 'ETH/USDT', amount: 2.0, price: 2950, date: 'Hace 5h', profit: '+12.5%' },
-    { type: 'COMPRA', asset: 'SOL/USDT', amount: 50, price: 135, date: 'Ayer', profit: null },
-    { type: 'VENTA', asset: 'BTC/USDT', amount: 0.05, price: 87100, date: 'Ayer', profit: '-1.2%' },
-  ];
-  
-  const totalBalance = assets.reduce((acc, item) => acc + item.value, 0);
+      const res = await fetch(`${API_BASE_URL}/api/account/deposit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: USER_EMAIL, amount: amt }),
+      });
+
+      if (!res.ok) throw new Error('No se pudo procesar el depósito');
+
+      setNotif({ type: 'success', message: `Depósito de $${amt.toFixed(2)} realizado` });
+      setDepositAmount('');
+      setIsDepositing(false);
+      setTimeout(() => fetchPortfolio(), 800);
+    } catch (err: any) {
+      console.error('Deposit error', err);
+      setNotif({ type: 'error', message: err.message || 'Error al depositar' });
+      setIsDepositing(false);
+    }
+  };
+
+  // ----- Export CSV -----
+  const handleExportCSV = () => {
+    const rows = [
+      ['Coin', 'Amount', 'Value'],
+      ...assets.map((a) => [a.coin, a.amount.toString(), a.value.toFixed(2)]),
+    ];
+    const csv = rows.map((r) => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `portfolio_${new Date().toISOString()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setNotif({ type: 'success', message: 'Exportado CSV correctamente' });
+  };
+
+  // ----- Helpers & Samples -----
+  function sampleAssets(): Asset[] {
+    return [
+      { coin: 'USDT', amount: 24500.0, value: 24500.0, colorClass: 'bg-green-400' },
+      { coin: 'BTC', amount: 0.45, value: 39150.0, colorClass: 'bg-orange-400' },
+      { coin: 'ETH', amount: 4.2, value: 12300.5, colorClass: 'bg-blue-400' },
+      { coin: 'SOL', amount: 150, value: 20400.0, colorClass: 'bg-purple-400' },
+    ];
+  }
+
+  function sampleHistory(): Trade[] {
+    return [
+      { type: 'COMPRA', asset: 'BTC/USDT', amount: 0.1, price: 86500, date: 'Hace 2h', profit: null },
+      { type: 'VENTA', asset: 'ETH/USDT', amount: 2, price: 2950, date: 'Hace 5h', profit: '+12.5%' },
+      { type: 'COMPRA', asset: 'SOL/USDT', amount: 50, price: 135, date: 'Ayer', profit: null },
+      { type: 'VENTA', asset: 'BTC/USDT', amount: 0.05, price: 87100, date: 'Ayer', profit: '-1.2%' },
+    ];
+  }
+
+  function colorForIndex(i: number) {
+    const colors = ['bg-green-400', 'bg-orange-400', 'bg-blue-400', 'bg-purple-400', 'bg-rose-400'];
+    return colors[i % colors.length];
+  }
+
+  const totalBalance = assets.reduce((acc, a) => acc + a.value, 0);
+
+  // ----- Small, dismissible notification -----
+  useEffect(() => {
+    if (!notif) return;
+    const t = setTimeout(() => setNotif(null), 4000);
+    return () => clearTimeout(t);
+  }, [notif]);
+
+  // ----- Logout -----
+  const handleLogout = () => {
+    // Lógica real de logout
+    router.push('/');
+  };
 
   return (
-    <div className="min-h-screen bg-black text-white flex font-sans">
-      
+    <div className="min-h-screen bg-[#05060a] text-white flex font-sans">
       {/* SIDEBAR */}
-      <aside className="w-64 border-r border-slate-800 bg-slate-950 flex flex-col p-4 hidden md:flex">
-        <div className="flex items-center gap-2 mb-10 px-2">
-          <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center">
+      <aside className="w-72 border-r border-slate-800 bg-gradient-to-b from-[#071126] to-[#04050a] flex flex-col p-6 hidden lg:flex">
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-xl">
             <Cpu className="text-white w-5 h-5" />
           </div>
-          <h1 className="font-bold text-xl tracking-tighter">NEXUS <span className="text-blue-500">AI</span></h1>
+          <div>
+            <h1 className="font-bold text-lg tracking-tight">NEXUS <span className="text-indigo-400">AI</span></h1>
+            <p className="text-slate-400 text-xs">Trading Intelligence</p>
+          </div>
         </div>
 
         <nav className="space-y-2 flex-1">
-          <button onClick={() => router.push('/dashboard')} className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-900 rounded-lg transition">
-            <Activity className="w-5 h-5" /> Dashboard
+          <button onClick={() => router.push('/dashboard')} className="w-full flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-slate-900 rounded-lg transition">
+            <Activity className="w-5 h-5" /> <span>Dashboard</span>
           </button>
-          <button onClick={() => router.push('/estrategias')} className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-900 rounded-lg transition">
-            <LineChart className="w-5 h-5" /> Estrategias
+          <button onClick={() => router.push('/estrategias')} className="w-full flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-slate-900 rounded-lg transition">
+            <LineChart className="w-5 h-5" /> <span>Estrategias</span>
           </button>
-          <button onClick={() => router.push('/cartera')} className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600/10 text-blue-400 border border-blue-600/20 rounded-lg transition">
-            <Wallet className="w-5 h-5" /> Cartera
+          <button onClick={() => router.push('/cartera')} className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-600/10 text-indigo-300 border border-indigo-600/20 rounded-lg transition">
+            <Wallet className="w-5 h-5" /> <span>Cartera</span>
           </button>
         </nav>
 
-        <button onClick={() => router.push('/')} className="flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-900/20 rounded-lg mt-auto">
-          <LogOut className="w-5 h-5" /> Cerrar Sesión
-        </button>
+        <div className="mt-auto">
+          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-900/20 rounded-lg w-full">
+            <LogOut className="w-5 h-5" /> <span>Cerrar Sesión</span>
+          </button>
+        </div>
       </aside>
 
-      {/* CONTENIDO PRINCIPAL */}
+      {/* MAIN */}
       <main className="flex-1 p-8 overflow-y-auto relative">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-blue-900/20 via-black to-black pointer-events-none"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-blue-900/10 via-black to-black pointer-events-none" />
 
-        <header className="flex justify-between items-center mb-8 relative z-10">
+        <header className="flex justify-between items-center mb-6 relative z-10">
           <div>
-            <h2 className="text-2xl font-bold">Mi Cartera</h2>
-            <p className="text-slate-400 text-sm">Gestión de activos y balance.</p>
+            <h2 className="text-2xl font-semibold">Mi Cartera</h2>
+            <p className="text-slate-400 text-sm">Gestión de activos y balance</p>
           </div>
-          {/* BOTÓN QUE CONTROLA LA VISIBILIDAD */}
-          <button 
-            onClick={() => setShowKeyForm(!showKeyForm)} // <-- TOGGLE
-            className={`px-6 py-2 rounded-lg font-bold text-sm transition shadow-lg flex items-center gap-2 ${
-                showKeyForm ? 'bg-red-600 hover:bg-red-500 shadow-red-900/20' : 'bg-purple-600 hover:bg-purple-500 shadow-purple-900/20'
-            }`}
-          >
-            <Key className="w-4 h-4" /> 
-            {showKeyForm ? 'Cerrar Configuración' : 'Configurar API Keys'}
-          </button>
+
+          <div className="flex items-center gap-3">
+            <button onClick={() => fetchPortfolio()} className="px-4 py-2 rounded-lg bg-slate-800/60 hover:bg-slate-800 flex items-center gap-2 text-sm">
+              <RefreshCw className="w-4 h-4" /> <span>Refrescar</span>
+            </button>
+
+            <button onClick={() => setShowKeyForm(!showKeyForm)} className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 ${showKeyForm ? 'bg-red-600' : 'bg-indigo-600'}`}>
+              <Key className="w-4 h-4" /> {showKeyForm ? 'Cerrar Config' : 'Configurar API Keys'}
+            </button>
+
+            <div className="flex items-center gap-2">
+              <button onClick={() => setIsDepositing(true)} className="px-4 py-2 rounded-lg bg-green-600 flex items-center gap-2 text-sm">
+                <PlusCircle className="w-4 h-4" /> Depositar Fondos
+              </button>
+              <button onClick={handleExportCSV} className="px-3 py-2 rounded-lg bg-slate-800/60 hover:bg-slate-800 flex items-center gap-2 text-sm">
+                <Download className="w-4 h-4" /> Export CSV
+              </button>
+            </div>
+          </div>
         </header>
 
-        {/* --- 1. FORMULARIO DE CLAVES (SECCIÓN CONDICIONAL) --- */}
+        {/* KEY FORM */}
         {showKeyForm && (
-            <form onSubmit={handleSaveKeys} className="lg:col-span-3 bg-slate-900/50 border border-slate-800 p-6 rounded-2xl shadow-xl mb-6">
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-red-400">
-                    <Key className="w-5 h-5 text-red-400" /> API Keys de Binance (Modo Bot)
-                </h3>
-                <p className="text-slate-400 text-sm mb-4">
-                    Introduce tus claves para activar la ejecución automática. Las claves se guardarán **encriptadas** en MongoDB.
-                </p>
+          <form onSubmit={handleSaveKeys} className="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl mb-6 shadow-lg relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2"><Key className="w-5 h-5 text-indigo-300" /> API Keys (Modo Bot)</h3>
+              <div className="text-sm text-slate-400">Guardadas localmente & en tu cuenta (encriptadas)</div>
+            </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input 
-                        type="text" 
-                        placeholder="API Key Pública" 
-                        value={apiKey} 
-                        onChange={(e) => setApiKey(e.target.value)}
-                        className="bg-black/40 border border-slate-700 p-3 rounded-lg text-white placeholder-slate-500 focus:border-blue-500 outline-none"
-                    />
-                    <input 
-                        type="password" 
-                        placeholder="Secret Key Privada" 
-                        value={secretKey} 
-                        onChange={(e) => setSecretKey(e.target.value)}
-                        className="bg-black/40 border border-slate-700 p-3 rounded-lg text-white placeholder-slate-500 focus:border-blue-500 outline-none"
-                    />
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API Key Pública" className="bg-black/30 border border-slate-700 p-3 rounded-lg" />
+              <input type="password" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} placeholder="Secret Key Privada" className="bg-black/30 border border-slate-700 p-3 rounded-lg" />
+            </div>
 
-                <button 
-                    type="submit" 
-                    disabled={isSaving || !apiKey || !secretKey}
-                    className="mt-4 bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-lg transition flex items-center gap-2 shadow-lg disabled:bg-slate-700 disabled:cursor-not-allowed"
-                >
-                    <Save className="w-4 h-4" /> 
-                    {isSaving ? 'GUARDANDO...' : 'GUARDAR CLAVES ENCRIPTADAS'}
-                </button>
-                
-                {saveStatus.success && (
-                    <p className="mt-3 text-green-400 font-bold flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {saveStatus.success}</p>
-                )}
-                {saveStatus.error && (
-                    <p className="mt-3 text-red-400 font-bold flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {saveStatus.error}</p>
-                )}
-            </form>
+            <div className="flex items-center gap-3 mt-4">
+              <button disabled={isSaving || !apiKey || !secretKey} type="submit" className="bg-indigo-600 px-4 py-2 rounded-lg flex items-center gap-2">
+                <Save className="w-4 h-4" /> {isSaving ? 'Guardando...' : 'Guardar Claves'}
+              </button>
+
+              <button onClick={() => { setApiKey(''); setSecretKey(''); setSaveStatus({}); }} type="button" className="px-4 py-2 rounded-lg bg-slate-800/50">Limpiar</button>
+
+              {saveStatus.success && <div className="text-green-400 flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {saveStatus.success}</div>}
+              {saveStatus.error && <div className="text-red-400 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {saveStatus.error}</div>}
+            </div>
+          </form>
         )}
-        
-        {/* --- 2. RESTO DEL CONTENIDO (BALANCE Y HISTORIAL) --- */}
+
+        {/* MAIN GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
-            
-            <div className="lg:col-span-2 space-y-6">
-                <div className="bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-8 opacity-10"><Wallet className="w-32 h-32 text-white" /></div>
-                    <h3 className="text-slate-400 mb-2 font-medium">Balance Total Estimado</h3>
-                    <div className="text-5xl font-mono font-bold text-white mb-4">
-                        ${totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </div>
-                    <div className="flex gap-4">
-                        <div className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm flex items-center gap-1 border border-green-500/30">
-                            <ArrowUpRight className="w-4 h-4" /> +$1,240.50 (Hoy)
-                        </div>
-                        <div className="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm flex items-center gap-1 border border-blue-500/30">
-                            PNL Total: +12.4%
-                        </div>
-                    </div>
-                </div>
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
+              <div className="absolute top-4 right-6 opacity-10"><Wallet className="w-28 h-28 text-white" /></div>
+              <h4 className="text-slate-400 mb-2">Balance Total Estimado</h4>
+              <div className="text-4xl md:text-5xl font-mono font-bold">${totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
 
-                <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
-                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
-                        <PieChart className="w-5 h-5 text-purple-500" /> Distribución de Activos
-                    </h3>
-                    <div className="space-y-4">
-                        {assets.map((asset) => (
-                            <div key={asset.coin}>
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span className="font-bold text-white">{asset.coin}</span>
-                                    <span className="text-slate-400">${asset.value.toLocaleString()}</span>
-                                </div>
-                                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
-                                    <div 
-                                        className={`h-full ${asset.color}`} 
-                                        style={{ width: `${(asset.value / totalBalance) * 100}%` }}
-                                    ></div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+              <div className="flex gap-4 mt-4">
+                <div className="bg-green-600/10 text-green-300 px-3 py-1 rounded-full text-sm flex items-center gap-2"> <ArrowUpRight className="w-4 h-4" /> +$1,240.50 (Hoy)</div>
+                <div className="bg-indigo-600/10 text-indigo-300 px-3 py-1 rounded-full text-sm flex items-center gap-2">PNL Total: +12.4%</div>
+              </div>
+
             </div>
 
-            {/* HISTORIAL LATERAL */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 h-full flex flex-col">
-                <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
-                    <History className="w-5 h-5 text-orange-500" /> Historial Reciente
-                </h3>
-                <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar">
-                    {history.map((trade, i) => (
-                        <div key={i} className="p-4 bg-black/40 rounded-xl border border-slate-800 hover:border-slate-600 transition">
-                            <div className="flex justify-between items-start mb-2">
-                                <div>
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${trade.type === 'COMPRA' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                                        {trade.type}
-                                    </span>
-                                    <span className="text-white font-bold ml-2">{trade.asset}</span>
-                                </div>
-                                <span className="text-xs text-slate-500">{trade.date}</span>
-                            </div>
-                            <div className="flex justify-between items-end">
-                                <div className="text-sm text-slate-400">
-                                    {trade.amount} @ ${trade.price}
-                                </div>
-                                {trade.profit && (
-                                    <div className={`text-sm font-bold ${trade.profit.startsWith('+') ? 'text-green-400' : 'text-red-400'}`}>
-                                        {trade.profit}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-                <button className="mt-auto w-full py-3 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition">
-                    Ver todo el historial
-                </button>
+            <div className="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
+              <h4 className="text-lg font-semibold mb-4 flex items-center gap-2"><PieChart className="w-5 h-5 text-purple-400" /> Distribución de Activos</h4>
+
+              <div className="space-y-4">
+                {assets.map((asset) => (
+                  <div key={asset.coin}>
+                    <div className="flex justify-between mb-1">
+                      <div className="flex items-baseline gap-3">
+                        <div className={`w-3 h-3 rounded ${asset.colorClass}`} />
+                        <div className="font-semibold">{asset.coin}</div>
+                      </div>
+                      <div className="text-slate-400">${asset.value.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                      <div className={`${asset.colorClass} h-full`} style={{ width: `${(asset.value / Math.max(totalBalance, 1)) * 100}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
+          </div>
+
+          <aside className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 flex flex-col">
+            <h4 className="text-lg font-semibold mb-4 flex items-center gap-2"><History className="w-5 h-5 text-orange-400" /> Historial Reciente</h4>
+
+            <div className="space-y-4 overflow-y-auto" style={{ maxHeight: 420 }}>
+              {history.map((t, i) => (
+                <div key={i} className="p-3 bg-black/30 rounded-xl border border-slate-800 hover:border-slate-600 transition">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${t.type === 'COMPRA' ? 'bg-green-600/20 text-green-300' : 'bg-red-600/20 text-red-300'}`}>{t.type}</span>
+                      <span className="ml-2 font-semibold">{t.asset}</span>
+                    </div>
+                    <div className="text-xs text-slate-400">{t.date}</div>
+                  </div>
+
+                  <div className="flex justify-between items-end">
+                    <div className="text-sm text-slate-300">{t.amount} @ ${t.price}</div>
+                    {t.profit ? <div className={`text-sm font-semibold ${t.profit.startsWith('+') ? 'text-green-400' : 'text-red-400'}`}>{t.profit}</div> : <div className="text-slate-500 text-sm">-</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button onClick={() => router.push('/history')} className="mt-auto py-3 px-4 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-sm">Ver todo el historial</button>
+          </aside>
         </div>
+
+        {/* Notifications */}
+        {notif && (
+          <div className={`fixed right-6 bottom-6 z-50 p-4 rounded-lg shadow-xl ${notif.type === 'success' ? 'bg-green-600' : notif.type === 'error' ? 'bg-red-600' : 'bg-slate-700'}`}>
+            <div className="flex items-center gap-3">
+              {notif.type === 'success' && <CheckCircle />}
+              {notif.type === 'error' && <AlertTriangle />}
+              <div>{notif.message}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Deposit Modal */}
+        {isDepositing && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
+            <div className="bg-[#071022] p-6 rounded-2xl w-full max-w-md border border-slate-800">
+              <h3 className="text-lg font-semibold mb-2">Depositar Fondos</h3>
+              <p className="text-slate-400 mb-4">Introduce la cantidad a depositar en USD. Esto simula un depósito en tu cuenta.</p>
+
+              <form onSubmit={handleDeposit} className="space-y-3">
+                <input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} placeholder="$0.00" className="w-full p-3 rounded-lg bg-black/30 border border-slate-700" />
+
+                <div className="flex justify-between items-center">
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={isDepositing} className="bg-green-600 px-4 py-2 rounded-lg">{isDepositing ? 'Procesando...' : 'Depositar'}</button>
+                    <button type="button" onClick={() => setIsDepositing(false)} className="px-4 py-2 rounded-lg bg-slate-800/50">Cancelar</button>
+                  </div>
+                  <div className="text-slate-400 text-sm">Saldo estimado: ${totalBalance.toFixed(2)}</div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
