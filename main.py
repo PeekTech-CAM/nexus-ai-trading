@@ -44,7 +44,6 @@ app.add_middleware(
 )
 # --- EN main.py (Despues de la línea 40) ---
 
-# Inicialización de servicios
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 exchange = ccxt.binance()
 
