@@ -84,7 +84,8 @@ class AIAnalyzer:
 
 class OrderManager:
     def __init__(self, exchange: ccxt.Exchange, config: BotConfig): self.exchange = exchange; self.config = config
-    def execute_order(self, symbol: str, signal: TradeSignal) -> Dict[str, Any]:
+    # CORRECCIÓN: Usar TradingSignal (el Enum correcto)
+def execute_order(self, symbol: str, signal: TradingSignal) -> Dict[str, Any]:
         # Esta es la parte que usa la conexión privada
         side = 'buy' if signal.signal in [TradingSignal.BUY, TradingSignal.STRONG_BUY] else 'sell'
         amount = 0.001
