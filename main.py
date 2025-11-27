@@ -42,19 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# --- EN main.py (Despues de la línea 40) ---
-
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-exchange = ccxt.binance()
-
-# 🔥 FUNCIONES AUXILIARES (AÑADIR ESTO AQUÍ) 🔥
-def verify_password(plain, hashed): 
-    return pwd_context.verify(plain, hashed)
-
-def hash_password(password):
-    return pwd_context.hash(password)
-    
-# --- (Continúa con las clases UserAuth, StrategyRequest, etc.) ---
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 exchange = ccxt.binance() # Instancia pública para market data
@@ -67,12 +54,18 @@ class UserAuth(BaseModel):
 class StrategyRequest(BaseModel):
     prompt: str
 
+# 🔥 MODELO CRÍTICO: PARA GUARDAR CLAVES
+class KeyPayload(BaseModel):
+    email: str
+    apiKey: str
+    secretKey: str
+
+
 # ==========================================
 # 🧠 3. LÓGICA DE CÁLCULO Y AI
 # ==========================================
 
 def calculate_rsi(prices, period=14):
-    # Implementación de RSI (Asumiendo que numpy está instalado)
     try:
         deltas = np.diff(prices)
         seed = deltas[:period+1]
@@ -93,8 +86,7 @@ def calculate_rsi(prices, period=14):
     except: return 50.0
 
 def get_ai_analysis(price, change, rsi):
-    # Lógica de AI (Multi-Model / Fallback)
-    modelos = ["gemini-1.5-flash", "gemini-pro"]
+    modelos = ["gemini-pro"]
     headers = {'Content-Type': 'application/json'}
     prompt_text = f"Bitcoin a ${price} ({change}%). RSI: {rsi:.2f}. Dame 1 frase CORTA de análisis técnico financiero."
     data = { "contents": [{ "parts": [{"text": prompt_text}] }] }
@@ -150,18 +142,6 @@ async def get_btc_data():
         }
     except Exception as e: return {"price": 0, "change_24h": 0, "status": "ERROR"}
 
-# 🔥 RUTA ARREGLADA: EJECUCIÓN DE BOT (Para Cron Job)
-@app.get("/api/bot/run-cycle")
-async def run_bot_cycle_endpoint():
-    """Endpoint llamado por el Cron Job de Render."""
-    print("--- 🤖 CRON ACTIVADO: Iniciando Ciclo de Trading ---")
-    
-    # Aquí es donde el bot_executor.py debería estar, pero solo confirmamos la ruta:
-    # Nota: El bot_executor.py usa la lógica completa, este solo confirma que la API responde.
-    
-    return {"status": "success", "message": "Bot cycle initiated via cron."}
-
-# 🔥 RUTA: HISTORIAL DE VELAS (Para el gráfico)
 @app.get("/api/market/candles")
 async def get_candles():
     try:
@@ -178,7 +158,6 @@ async def get_candles():
         return formatted_data
     except: return []
 
-# 🔥 RUTA: ESCANER DE MERCADO (Para la lista lateral)
 @app.get("/api/market/overview")
 async def get_market_overview():
     try:
@@ -195,7 +174,6 @@ async def get_market_overview():
         return market_data
     except: return []
 
-# 🔥 RUTA: OBTENER BALANCE REAL DE USUARIO (Cartera)
 @app.get("/api/user/balance/{user_email}")
 async def get_user_balance(user_email: str):
     try:
@@ -222,7 +200,41 @@ async def get_user_balance(user_email: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Fallo al conectar con el exchange de Binance.")
 
-# --- RUTAS DE AUTH Y STRIPE ---
+# 🔥 RUTA ARREGLADA: GUARDAR CLAVES DE BINANCE (404 FIX)
+@app.post("/api/user/save-keys")
+def save_exchange_keys(payload: KeyPayload):
+    """Recibe las claves del usuario y las guarda encriptadas."""
+    
+    if not payload.email or not payload.apiKey or not payload.secretKey:
+        raise HTTPException(status_code=400, detail="Faltan datos de autenticación.")
+    
+    exito = db_manager.guardar_keys_binance(
+        payload.email,
+        payload.apiKey,
+        payload.secretKey
+    )
+    
+    if exito:
+        return {"status": "success", "message": "Claves guardadas y encriptadas correctamente."}
+    else:
+        raise HTTPException(status_code=500, detail="Error al guardar las claves en el servidor."
+        )
+
+
+# --- ⚙️ RUTAS DE SERVICIO Y AUTH ---
+
+@app.post("/api/ai/generate-strategy")
+def generate_strategy(request: StrategyRequest):
+    return {"name": "Estrategia Fallback", "risk_level": "Medio", "indicators": ["RSI"], "entry_rules": "Simulación", "exit_rules": "Simulación", "stop_loss": "2%", "take_profit": "5%", "reasoning": "Simulación"}
+
+@app.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    if not STRIPE_WEBHOOK_SECRET: return {"status": "error", "message": "Webhook secret not set"}
+    # ... (Resto de la lógica del webhook) ...
+    return {"status": "success"}
+
+def verify_password(plain, hashed): return pwd_context.verify(plain, hashed)
+
 @app.post("/api/auth/register")
 def register(user: UserAuth):
     try:
@@ -239,17 +251,12 @@ def login(user: UserAuth):
         if not u or not verify_password(user.password, u['password']):
             raise HTTPException(status_code=401, detail="Credenciales incorrectas")
         return {"status": "success", "message": "Bienvenido", "email": user.email}
-    except Exception as e: raise HTTPException(500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/webhook/stripe")
-async def stripe_webhook(request: Request):
-    if not STRIPE_WEBHOOK_SECRET: return {"status": "error", "message": "Webhook secret not set"}
-    # ... (Resto de la lógica del webhook) ...
-    return {"status": "success"}
-
-@app.post("/api/ai/generate-strategy")
-def generate_strategy(request: StrategyRequest):
-    return {"name": "Estrategia Fallback", "risk_level": "Medio", "indicators": ["RSI"], "entry_rules": "Simulación", "exit_rules": "Simulación", "stop_loss": "2%", "take_profit": "5%", "reasoning": "Simulación"}
+@app.get("/api/bot/run-cycle")
+async def run_bot_cycle_endpoint():
+    print("--- 🤖 CRON ACTIVADO: Iniciando Ciclo de Trading ---")
+    return {"status": "success", "message": "Bot cycle initiated via cron."}
 
 if __name__ == "__main__":
     print("🚀 NEXUS SYSTEM ONLINE (Full Power)...")
