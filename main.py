@@ -13,8 +13,9 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 
 # ==========================================
-# 🔐 CONFIGURACIÓN DE ENTORNO
+# ⚙️ 1. CONFIGURACIÓN DE ENTORNO Y CLAVES
 # ==========================================
+# Las claves se leen de las variables de entorno de Render
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
@@ -26,10 +27,11 @@ if STRIPE_SECRET_KEY:
 try:
     from database_manager import db_manager
 except ImportError: 
+    print("🔥 Error: No se encuentra database_manager.py")
     exit()
 
 # ==========================================
-# 🚀 2. INICIALIZACIÓN DEL SERVIDOR
+# 🚀 2. INICIALIZACIÓN DEL SERVIDOR (FASTAPI)
 # ==========================================
 app = FastAPI(title="NEXUS AI TRADING CORE")
 
@@ -41,8 +43,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Inicialización de servicios
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-exchange = ccxt.binance()
+exchange = ccxt.binance() # Instancia pública para market data
 
 # --- MODELOS DE DATOS ---
 class UserAuth(BaseModel):
@@ -52,8 +55,11 @@ class UserAuth(BaseModel):
 class StrategyRequest(BaseModel):
     prompt: str
 
-# --- FUNCIONES AUXILIARES ---
-def verify_password(plain, hashed): return pwd_context.verify(plain, hashed)
+# ==========================================
+# 🧠 3. LÓGICA DE NEGOCIO Y RUTAS
+# ==========================================
+
+# --- FUNCIONES AUXILIARES DE CÁLCULO ---
 
 def calculate_rsi(prices, period=14):
     try:
@@ -75,11 +81,9 @@ def calculate_rsi(prices, period=14):
         return rsi[-1]
     except: return 50.0
 
-# ==========================================
-# 🧠 3. LÓGICA DE NEGOCIO Y RUTAS
-# ==========================================
 def get_ai_analysis(price, change, rsi):
-    modelos = ["gemini-1.5-flash", "gemini-pro"]
+    # Lógica de AI (Multi-Model / Fallback)
+    modelos = ["gemini-pro"]
     headers = {'Content-Type': 'application/json'}
     prompt_text = f"Bitcoin a ${price} ({change}%). RSI: {rsi:.2f}. Dame 1 frase CORTA de análisis técnico financiero."
     data = { "contents": [{ "parts": [{"text": prompt_text}] }] }
@@ -87,7 +91,7 @@ def get_ai_analysis(price, change, rsi):
     for modelo in modelos:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={GOOGLE_API_KEY}"
-            response = requests.post(url, headers=headers, json=data, timeout=3)
+            response = requests.post(url, headers=headers, json=data, timeout=5)
             if response.status_code == 200:
                 return response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
         except:
@@ -98,8 +102,8 @@ def get_ai_analysis(price, change, rsi):
     if rsi < 30: return "Sobrevendida, posible rebote."
     return "Mercado en rango, esperando ruptura."
 
-@app.get("/")
-def home(): return {"status": "ONLINE", "service": "Nexus AI Trading API"}
+
+# --- 📡 RUTAS DE DATOS Y EJECUCIÓN ---
 
 @app.get("/api/market/btc")
 async def get_btc_data():
@@ -108,7 +112,6 @@ async def get_btc_data():
         price = ticker['last']
         change = ticker['percentage']
         
-        # Obtenemos velas para RSI
         ohlcv_20 = exchange.fetch_ohlcv('BTC/USDT', timeframe='1h', limit=20)
         closes = np.array([x[4] for x in ohlcv_20])
         rsi = calculate_rsi(closes)
@@ -131,7 +134,6 @@ async def get_btc_data():
         }
     except Exception as e: return {"price": 0, "change_24h": 0, "status": "ERROR"}
 
-# 🔥 RUTA DE VELAS HISTÓRICAS (Para el gráfico)
 @app.get("/api/market/candles")
 async def get_candles():
     try:
@@ -139,7 +141,7 @@ async def get_candles():
         formatted_data = []
         for candle in ohlcv:
             formatted_data.append({
-                "time": candle[0] // 1000, 
+                "time": candle[0] // 1000,
                 "open": candle[1],
                 "high": candle[2],
                 "low": candle[3],
@@ -148,7 +150,6 @@ async def get_candles():
         return formatted_data
     except: return []
 
-# 🔥 RUTA DE ESCANER DE MERCADO (Para la lista lateral)
 @app.get("/api/market/overview")
 async def get_market_overview():
     try:
@@ -165,63 +166,44 @@ async def get_market_overview():
         return market_data
     except: return []
 
-# --- RUTAS DE STRIPE Y AUTH (Correctas) ---
-@app.post("/webhook/stripe")
-async def stripe_webhook(request: Request):
-    if not STRIPE_WEBHOOK_SECRET: return {"status": "error", "message": "Webhook secret not set"}
-    # ... (Resto de la lógica del webhook) ...
-    return {"status": "success"}
-
-@app.post("/api/auth/register")
-def register(user: UserAuth):
+# 🔥 RUTA NUEVA: OBTENER BALANCE REAL DE USUARIO 🔥
+@app.get("/api/user/balance/{user_email}")
+async def get_user_balance(user_email: str):
+    """
+    Desencripta las claves y consulta el saldo real en Binance Testnet.
+    """
     try:
-        hashed = pwd_context.hash(user.password)
-        exito, msg = db_manager.crear_usuario(user.email, hashed)
-        if not exito: raise HTTPException(400, detail=msg)
-        return {"status": "success", "message": "Registrado"}
-    except Exception as e: raise HTTPException(500, detail=str(e))
-
-@app.post("/api/auth/login")
-def login(user: UserAuth):
-    try:
-        u = db_manager.users.find_one({"email": user.email})
-        if not u or not verify_password(user.password, u['password']):
-            raise HTTPException(status_code=401, detail="Error")
-        return {"status": "success", "message": "Bienvenido", "email": user.email}
-    except Exception as e: raise HTTPException(500, detail=str(e))
-
-@app.post("/api/ai/generate-strategy")
-def generate_strategy(request: StrategyRequest):
-    # ... (La lógica del generador de estrategias es compleja, se deja la función para ser completada)
-    # De momento, la dejamos como un Fallback simple para que el código compile
-    return {"name": "Estrategia Fallback", "risk_level": "Medio", "indicators": ["RSI"], "entry_rules": "Simulación", "exit_rules": "Simulación", "stop_loss": "2%", "take_profit": "5%", "reasoning": "Simulación"}
-# --- EN main.py ---
-# Define un nuevo modelo para recibir las claves
-class KeyPayload(BaseModel):
-    email: str
-    apiKey: str
-    secretKey: str
-    
-# 🔥 RUTA: GUARDAR CLAVES DE BINANCE ENCRIPTADAS 🔥
-@app.post("/api/user/save-keys")
-def save_exchange_keys(payload: KeyPayload):
-    """Recibe las claves del usuario y las guarda encriptadas."""
-    
-    # En un entorno real, verificarías la autenticación del usuario aquí
-    if not payload.email or not payload.apiKey or not payload.secretKey:
-        raise HTTPException(status_code=400, detail="Faltan datos de autenticación.")
-    
-    exito = db_manager.guardar_keys_binance(
-        payload.email,
-        payload.apiKey,
-        payload.secretKey
-    )
-    
-    if exito:
-        return {"status": "success", "message": "Claves guardadas y encriptadas correctamente."}
-    else:
-        raise HTTPException(status_code=500, detail="Error al guardar las claves en el servidor.")
+        # 1. Obtener y Desencriptar Claves
+        credentials = db_manager.obtener_credenciales_usuario(user_email)
         
-if __name__ == "__main__":
-    print("🚀 NEXUS SYSTEM ONLINE (Full Power)...")
-    uvicorn.run("main:app", host="0.0.0.0", port=os.getenv("PORT", 8000))
+        if not credentials:
+            raise HTTPException(status_code=404, detail="Claves no guardadas para este usuario.")
+            
+        # 2. Inicializar Exchange con credenciales (Configurado para TESTNET)
+        user_exchange = ccxt.binance({
+            'apiKey': credentials['apiKey'],
+            'secret': credentials['secret'],
+            'options': {
+                'defaultType': 'future', 
+                'urls': {'api': 'https://testnet.binancefuture.com'} # <--- TESTNET URL
+            }
+        })
+        
+        # 3. Consultar el saldo (Wallet/Margin)
+        balance = user_exchange.fetch_balance()
+        
+        # 4. Procesar y devolver el saldo total
+        total_equity = balance['total'].get('USDT', 0)
+        
+        return {
+            "status": "success",
+            "total_balance_usd": total_equity,
+            "assets": balance['total'], 
+            "free_margin": balance['free'].get('USDT', 0)
+        }
+        
+    except ccxt.AuthenticationError:
+        raise HTTPException(status_code=401, detail="Error de autenticación. Claves de Binance incorrectas.")
+    except Exception as e:
+        print(f"Error al obtener balance: {e}")
+        raise
