@@ -20,10 +20,11 @@ from pydantic import BaseModel
 # ==========================================
 # ⚙️ 1. CONFIGURACIÓN Y LOGGING
 # ==========================================
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEYm")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
-
+# 🔥 PEGA AQUÍ TU ID QUE EMPIEZA POR price_
+STRIPE_PRICE_ID = "price_1SY7cUGLbG2yglswIhW2K0qs"
 if STRIPE_SECRET_KEY: stripe.api_key = STRIPE_SECRET_KEY
 
 logging.basicConfig(level=logging.INFO)
